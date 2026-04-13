@@ -382,6 +382,80 @@ def visualize_trento():
 
 
 # ═══════════════════════════════════════════════════════════
+# ═══════════════════════════════════════════════════════════
+
+def visualize_muufl():
+    raw_dir = "/Users/chang/Explore/research_1/MFT_Data/MUUFL_raw"
+    if not os.path.exists(raw_dir + "/hsi.npy"):
+        print("\n=== MUUFL ===\n  SKIPPED: hsi.npy not found.")
+        return
+    print("\n=== MUUFL ===")
+    hsi = np.load(raw_dir + "/hsi.npy")
+    lidar = np.load(raw_dir + "/lidar.npy")
+    gt = np.load(raw_dir + "/gt.npy")
+    print(f"  HSI: {hsi.shape}, LiDAR: {lidar.shape}, GT: {gt.shape}")
+    print(f"  GT unique: {np.unique(gt)}")
+
+    # 11 classes, -1=unlabeled, 0=none
+    class_names = ["Unlabeled", "Trees", "Grass-Pure", "Grass-Ground", "Dirt-Sand",
+                   "Road", "Water", "Shadow-Building", "Buildings", "Sidewalk",
+                   "Yellow-Curb", "Cloth-Panels"]
+    class_colors = [
+        (0, 0, 0),          # 0/-1: unlabeled
+        (34, 139, 34),      # 1: Trees
+        (0, 255, 0),        # 2: Grass-Pure
+        (144, 238, 144),    # 3: Grass-Ground
+        (210, 180, 140),    # 4: Dirt-Sand
+        (128, 128, 128),    # 5: Road
+        (0, 0, 255),        # 6: Water
+        (64, 64, 64),       # 7: Shadow-Building
+        (255, 0, 0),        # 8: Buildings
+        (200, 200, 200),    # 9: Sidewalk
+        (255, 255, 0),      # 10: Yellow-Curb
+        (255, 0, 255),      # 11: Cloth-Panels
+    ]
+
+    # Remap -1 to 0 for visualization
+    gt_vis = gt.copy()
+    gt_vis[gt_vis < 0] = 0
+
+    # Train/test split: 5% train
+    labeled_mask = gt_vis > 0
+    labeled_indices = np.argwhere(labeled_mask)
+    n_labeled = len(labeled_indices)
+    np.random.seed(42)
+    perm = np.random.permutation(n_labeled)
+    n_train = max(1, int(n_labeled * 0.05))
+
+    train_gt = np.zeros_like(gt_vis)
+    test_gt = np.zeros_like(gt_vis)
+    for idx in perm[:n_train]:
+        r, c = labeled_indices[idx]
+        train_gt[r, c] = gt_vis[r, c]
+    for idx in perm[n_train:]:
+        r, c = labeled_indices[idx]
+        test_gt[r, c] = gt_vis[r, c]
+
+    print(f"  Labeled: {n_labeled}, Train: {n_train}, Test: {n_labeled - n_train}")
+
+    # Pseudo-color (bands 40, 20, 10 for 64-band MUUFL)
+    pseudo_rgb = make_pseudo_color(hsi, bands_rgb=[40, 20, 10])
+
+    # LiDAR: use first channel as grayscale
+    lidar_colored = plt.cm.gray(normalize_band(lidar[:, :, 0]))[:, :, :3]
+
+    train_map = make_label_map(train_gt, class_colors, class_names)
+    test_map = make_label_map(test_gt, class_colors, class_names)
+    train_counts = {c: int(np.sum(train_gt == c)) for c in range(len(class_names))}
+    test_counts = {c: int(np.sum(test_gt == c)) for c in range(len(class_names))}
+
+    legend_patches = make_legend_patches(class_names, class_colors)
+    save_4panel(pseudo_rgb, lidar_colored, train_map, test_map,
+                legend_patches, "MUUFL", "LiDAR",
+                train_counts, test_counts, class_names, class_colors)
+
+
+# ═══════════════════════════════════════════════════════════
 # MAIN
 # ═══════════════════════════════════════════════════════════
 if __name__ == "__main__":
@@ -389,4 +463,5 @@ if __name__ == "__main__":
     visualize_augsburg()
     visualize_houston()
     visualize_trento()
+    visualize_muufl()
     print(f"\nAll figures saved to: {OUT_DIR}")
