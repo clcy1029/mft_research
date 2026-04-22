@@ -37,14 +37,29 @@ def normalize_band(band):
     return ((band - mn) / (mx - mn)).astype(np.float32)
 
 
-def make_pseudo_color(hsi, bands_rgb):
-    """Create pseudo-color RGB from HSI using specified band indices."""
-    r = normalize_band(hsi[:, :, bands_rgb[0]])
-    g = normalize_band(hsi[:, :, bands_rgb[1]])
-    b = normalize_band(hsi[:, :, bands_rgb[2]])
-    # Slight gamma for better visibility
-    gamma = 0.8
-    rgb = np.stack([r**gamma, g**gamma, b**gamma], axis=-1)
+def histogram_equalize(band):
+    """Apply histogram equalization to a single band for better contrast."""
+    # Clip outliers (2nd and 98th percentile)
+    p2, p98 = np.percentile(band[band > 0] if np.any(band > 0) else band, [2, 98])
+    band_clipped = np.clip(band, p2, p98)
+    # Normalize to [0, 1]
+    mn, mx = band_clipped.min(), band_clipped.max()
+    if mx - mn < 1e-10:
+        return np.zeros_like(band, dtype=np.float32)
+    return ((band_clipped - mn) / (mx - mn)).astype(np.float32)
+
+
+def make_pseudo_color(hsi, bands_rgb, gamma=1.0):
+    """Create pseudo-color RGB from HSI using specified band indices.
+    Applies percentile clipping + optional gamma for paper-quality rendering."""
+    r = histogram_equalize(hsi[:, :, bands_rgb[0]])
+    g = histogram_equalize(hsi[:, :, bands_rgb[1]])
+    b = histogram_equalize(hsi[:, :, bands_rgb[2]])
+    if gamma != 1.0:
+        r = np.power(r, gamma)
+        g = np.power(g, gamma)
+        b = np.power(b, gamma)
+    rgb = np.stack([r, g, b], axis=-1)
     return np.clip(rgb, 0, 1)
 
 
@@ -195,17 +210,19 @@ def visualize_augsburg():
     ]
 
     # Pseudo-color from HSI (bands ~R=80, G=40, B=10 for 180-band Augsburg)
-    pseudo_rgb = make_pseudo_color(hsi, bands_rgb=[80, 40, 10])
+    # Pseudo-color from HSI — paper Fig 7 uses bands 40, 20, 10
+    pseudo_rgb = make_pseudo_color(hsi, bands_rgb=[40, 20, 10], gamma=0.9)
 
     # SAR composite (use bands 0,1,2 as RGB)
-    sar_rgb = np.stack([normalize_band(sar[:,:,0]),
-                        normalize_band(sar[:,:,1]),
-                        normalize_band(sar[:,:,2])], axis=-1)
-    sar_rgb = np.clip(sar_rgb ** 0.6, 0, 1)  # gamma for SAR
+    # SAR composite (use bands 0,1,2 as RGB) with histogram equalization
+    sar_rgb = np.stack([histogram_equalize(sar[:,:,0]),
+                        histogram_equalize(sar[:,:,1]),
+                        histogram_equalize(sar[:,:,2])], axis=-1)
+    sar_rgb = np.clip(sar_rgb ** 0.7, 0, 1)
 
     # DSM as grayscale/terrain colormap
-    dsm_norm = normalize_band(dsm)
-    dsm_colored = plt.cm.terrain(dsm_norm)[:, :, :3]
+    # DSM as terrain colormap with equalization
+    dsm_colored = plt.cm.terrain(histogram_equalize(dsm))[:, :, :3]
 
     # Label maps
     train_map = make_label_map(train_gt, class_colors, class_names)
@@ -254,8 +271,10 @@ def visualize_houston():
     class_colors = [(0,0,0),(0,205,0),(127,255,0),(46,139,87),(0,100,0),(255,165,79),
         (0,0,255),(255,0,0),(216,191,216),(128,128,128),(255,0,255),(0,255,255),
         (255,255,0),(238,154,0),(85,26,139),(255,127,80)]
-    pseudo_rgb = make_pseudo_color(hsi, bands_rgb=[64, 43, 22])
-    lidar_colored = plt.cm.gray(normalize_band(lidar))[:, :, :3]
+    # Pseudo-color — paper Fig 4 uses bands 64, 43, 22
+    pseudo_rgb = make_pseudo_color(hsi, bands_rgb=[64, 43, 22], gamma=0.85)
+    # LiDAR as grayscale with equalization
+    lidar_colored = plt.cm.gray(histogram_equalize(lidar))[:, :, :3]
     train_map = make_label_map(train_gt, class_colors, class_names)
     train_counts = {c: int(np.sum(train_gt == c)) for c in range(len(class_names))}
     test_map = make_label_map(test_gt, class_colors, class_names) if test_gt is not None else None
@@ -360,12 +379,12 @@ def visualize_trento():
 
     print(f"  Labeled pixels: {n_labeled}, Train: {n_train}, Test: {n_labeled - n_train}")
 
-    # Pseudo-color (bands ~40, 20, 10 for 63-band Trento)
-    pseudo_rgb = make_pseudo_color(hsi, bands_rgb=[40, 20, 10])
+    # Pseudo-color — paper Fig 6 uses bands 40, 20, 10
+    pseudo_rgb = make_pseudo_color(hsi, bands_rgb=[40, 20, 10], gamma=0.85)
 
     # LiDAR as terrain colormap
-    lidar_norm = normalize_band(lidar)
-    lidar_colored = plt.cm.gray(lidar_norm)[:, :, :3]
+    # LiDAR as grayscale with equalization
+    lidar_colored = plt.cm.gray(histogram_equalize(lidar))[:, :, :3]
 
     train_map = make_label_map(train_gt, class_colors, class_names)
     test_map = make_label_map(test_gt, class_colors, class_names)
@@ -439,10 +458,8 @@ def visualize_muufl():
     print(f"  Labeled: {n_labeled}, Train: {n_train}, Test: {n_labeled - n_train}")
 
     # Pseudo-color (bands 40, 20, 10 for 64-band MUUFL)
-    pseudo_rgb = make_pseudo_color(hsi, bands_rgb=[40, 20, 10])
-
-    # LiDAR: use first channel as grayscale
-    lidar_colored = plt.cm.gray(normalize_band(lidar[:, :, 0]))[:, :, :3]
+    # Pseudo-color — paper Fig 6 uses bands 40, 20, 10
+    pseudo_rgb = make_pseudo_color(hsi, bands_rgb=[40, 20, 10], gamma=0.85)
 
     train_map = make_label_map(train_gt, class_colors, class_names)
     test_map = make_label_map(test_gt, class_colors, class_names)
