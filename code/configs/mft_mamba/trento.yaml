@@ -1,0 +1,51 @@
+task_type: train
+
+num_train_epochs: 200
+batch_size: 64
+seed: 42
+
+model:
+    backbone: mamba
+    feature_maps: 16
+    num_heads: 8
+    num_encoder_layers: 2
+    mlp_hidden_dim: 512
+    num_hsi_tokens: 4
+    dropout: 0.1
+    hsi_only: false
+
+mamba:
+    d_state: 16
+    d_conv: 4
+    expand: 2
+
+data:
+    dataset_name: Trento
+    patch_size: 11
+    num_lidar_bands: 1
+
+optimizer:
+    optimizer: adam
+    learning_rate: 5e-4
+    weight_decay: 5e-3
+
+scheduler:
+    lr_scheduler_type: step
+    step_size: 50
+    gamma: 0.9
+
+logging:
+    log_every_n_steps: 50
+
+evaluation:
+    eval_strategy: steps
+    eval_every_n_steps: 50
+    test_batch_size: 500
+    num_runs: 3
+
+saving:
+    save_strategy: epoch
+    save_best_only: true
+
+device:
+    device: "auto"
